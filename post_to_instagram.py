@@ -1,12 +1,42 @@
 import os
-import sys
+import json
 import time
 import requests
 from pathlib import Path
 
 GRAPH_URL = "https://graph.instagram.com"
+
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png"}
 VIDEO_EXTENSIONS = {".mp4", ".mov"}
+
+STATE_FILE = Path("state.json")
+
+
+def load_state():
+    if not STATE_FILE.exists():
+        return {"next_index": 0}
+
+    with open(STATE_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def save_state(state):
+    with open(STATE_FILE, "w", encoding="utf-8") as f:
+        json.dump(state, f, indent=2)
+
+
+def get_files():
+    folder = Path("images")
+
+    files = [
+        file
+        for file in folder.iterdir()
+        if file.is_file()
+        and file.suffix.lower()
+        in IMAGE_EXTENSIONS | VIDEO_EXTENSIONS
+    ]
+
+    return sorted(files, key=lambda file: file.name.lower())
 
 
 def wait_for_container(creation_id, token):
@@ -21,6 +51,7 @@ def wait_for_container(creation_id, token):
             },
             timeout=60,
         )
+
         response.raise_for_status()
 
         data = response.json()
@@ -54,9 +85,11 @@ def publish_container(user_id, creation_id, token):
     )
 
     if not response.ok:
+        print("Instagram publish error:")
         print(response.text)
 
     response.raise_for_status()
+
     print(f"Published successfully: {response.json()}")
 
 
@@ -113,19 +146,6 @@ def post_reel(user_id, file_url, caption, token):
     publish_container(user_id, creation_id, token)
 
 
-def get_files():
-    folder = Path("images")
-
-    files = [
-        file for file in folder.iterdir()
-        if file.is_file()
-        and file.suffix.lower()
-        in IMAGE_EXTENSIONS | VIDEO_EXTENSIONS
-    ]
-
-    return sorted(files, key=lambda file: file.name.lower())
-
-
 def main():
     token = os.environ["INSTAGRAM_ACCESS_TOKEN"]
     user_id = os.environ["INSTAGRAM_USER_ID"]
@@ -138,27 +158,30 @@ def main():
     files = get_files()
 
     if not files:
-        raise RuntimeError("No images or videos found in images folder.")
+        raise RuntimeError(
+            "No images or videos found in images folder."
+        )
 
-    print("Files found:")
-    for file in files:
-        print(f" - {file}")
+    state = load_state()
+    next_index = state.get("next_index", 0)
 
-    # For now, select the first file.
-    # Queue/state system will be added next.
-    selected_file = files[0]
+    if next_index >= len(files):
+        print("All files have been posted.")
+        return
 
-    print(f"Selected file: {selected_file}")
+    selected_file = files[next_index]
 
-    filename = selected_file.name
+    print(
+        f"Selected file {next_index + 1}/{len(files)}: "
+        f"{selected_file.name}"
+    )
 
-    # GitHub raw public URL
     repository = os.environ["GITHUB_REPOSITORY"]
     branch = os.getenv("GITHUB_REF_NAME", "main")
 
     file_url = (
         f"https://raw.githubusercontent.com/"
-        f"{repository}/{branch}/images/{filename}"
+        f"{repository}/{branch}/images/{selected_file.name}"
     )
 
     print(f"Public URL: {file_url}")
@@ -177,6 +200,14 @@ def main():
         raise RuntimeError(
             f"Unsupported file type: {extension}"
         )
+
+    # Only advance the queue after successful publishing.
+    state["next_index"] = next_index + 1
+    save_state(state)
+
+    print(
+        f"Queue advanced: next_index={state['next_index']}"
+    )
 
 
 if __name__ == "__main__":
