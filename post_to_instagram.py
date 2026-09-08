@@ -5,7 +5,6 @@ import requests
 from pathlib import Path
 
 GRAPH_URL = "https://graph.instagram.com"
-
 STATE_FILE = Path("state.json")
 
 
@@ -25,7 +24,6 @@ def save_state(state):
 def get_reels():
     folder = Path("images")
 
-    # केवल 001.mp4, 002.mp4 ... जैसी numbered Reels लें
     files = [
         file
         for file in folder.iterdir()
@@ -54,9 +52,7 @@ def wait_for_container(creation_id, token):
 
         data = response.json()
 
-        print(
-            f"Container status ({attempt + 1}/20): {data}"
-        )
+        print(f"Container status ({attempt + 1}/20): {data}")
 
         status_code = data.get("status_code")
 
@@ -75,8 +71,9 @@ def wait_for_container(creation_id, token):
     )
 
 
-def publish_reel(user_id, file_url, caption, token):
-    # Create Reel container
+def publish_reel(user_id, file_url, caption, token, account_name):
+    print(f"\nPosting to Instagram account: {account_name}")
+
     response = requests.post(
         f"{GRAPH_URL}/{user_id}/media",
         params={
@@ -89,7 +86,7 @@ def publish_reel(user_id, file_url, caption, token):
     )
 
     if not response.ok:
-        print("Instagram container creation error:")
+        print(f"{account_name} container creation error:")
         print(response.text)
 
     response.raise_for_status()
@@ -98,15 +95,17 @@ def publish_reel(user_id, file_url, caption, token):
 
     if not creation_id:
         raise RuntimeError(
-            f"Reel container creation failed: {response.text}"
+            f"{account_name}: Reel container creation failed: "
+            f"{response.text}"
         )
 
-    print(f"Reel container created: {creation_id}")
+    print(
+        f"{account_name} Reel container created: "
+        f"{creation_id}"
+    )
 
-    # Wait until Instagram finishes processing
     wait_for_container(creation_id, token)
 
-    # Publish Reel
     response = requests.post(
         f"{GRAPH_URL}/{user_id}/media_publish",
         params={
@@ -117,19 +116,25 @@ def publish_reel(user_id, file_url, caption, token):
     )
 
     if not response.ok:
-        print("Instagram publish error:")
+        print(f"{account_name} Instagram publish error:")
         print(response.text)
 
     response.raise_for_status()
 
     print(
-        f"Published successfully: {response.json()}"
+        f"{account_name} published successfully: "
+        f"{response.json()}"
     )
 
 
 def main():
-    token = os.environ["INSTAGRAM_ACCESS_TOKEN"]
-    user_id = os.environ["INSTAGRAM_USER_ID"]
+    # Account 1
+    token_1 = os.environ["INSTAGRAM_ACCESS_TOKEN"]
+    user_id_1 = os.environ["INSTAGRAM_USER_ID"]
+
+    # Account 2
+    token_2 = os.environ["FACT_HERO_ACCESS_TOKEN"]
+    user_id_2 = os.environ["FACT_HERO_USER_ID"]
 
     caption = os.getenv(
         "INSTAGRAM_CAPTION",
@@ -154,7 +159,7 @@ def main():
     selected_file = reels[next_index]
 
     print(
-        f"Selected Reel "
+        f"\nSelected Reel "
         f"{next_index + 1}/{len(reels)}: "
         f"{selected_file.name}"
     )
@@ -170,22 +175,41 @@ def main():
 
     print(f"Public URL: {file_url}")
 
-    print("Detected: REEL")
+    # -----------------------------
+    # ACCOUNT 1: onlypickdaily
+    # -----------------------------
 
     publish_reel(
-        user_id,
+        user_id_1,
         file_url,
         caption,
-        token
+        token_1,
+        "onlypickdaily"
     )
 
-    # केवल successful publish के बाद queue आगे बढ़े
+    # -----------------------------
+    # ACCOUNT 2: fact_hero_
+    # -----------------------------
+
+    publish_reel(
+        user_id_2,
+        file_url,
+        caption,
+        token_2,
+        "fact_hero_"
+    )
+
+    # -----------------------------
+    # Move queue forward ONLY
+    # after BOTH accounts succeed
+    # -----------------------------
+
     state["next_index"] = next_index + 1
 
     save_state(state)
 
     print(
-        f"Queue advanced: "
+        f"\nQueue advanced: "
         f"next_index={state['next_index']}"
     )
 
