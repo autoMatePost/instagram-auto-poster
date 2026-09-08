@@ -24,5 +24,4 @@ jobs:
           INSTAGRAM_ACCESS_TOKEN: ${{ secrets.INSTAGRAM_ACCESS_TOKEN }}
           INSTAGRAM_USER_ID: ${{ secrets.INSTAGRAM_USER_ID }}
           INSTAGRAM_CAPTION: "This is my first automated Instagram post."
-        run: |
-          python post_to_instagram.py "https://raw.githubusercontent.com/autoMatePost/instagram-auto-poster/main/images/0-06.jpeg"
+        run: python post_to_instagram.py "https://raw.githubusercontent.com/autoMatePost/instagram-auto-poster/main/images/vlipsy-meme-flying-umbrella-YY2sF3fQ.mp4"
