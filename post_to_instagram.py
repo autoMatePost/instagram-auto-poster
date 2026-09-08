@@ -6,37 +6,10 @@ import requests
 GRAPH_URL = "https://graph.instagram.com"
 
 
-def post_image(image_url, caption):
-    token = os.environ["INSTAGRAM_ACCESS_TOKEN"]
-    user_id = os.environ["INSTAGRAM_USER_ID"]
-
-    # 1. Create media container
-    create_url = f"{GRAPH_URL}/{user_id}/media"
-
-    response = requests.post(
-        create_url,
-        params={
-            "image_url": image_url,
-            "caption": caption,
-            "access_token": token,
-        },
-        timeout=60,
-    )
-
-    response.raise_for_status()
-
-    container = response.json()
-    creation_id = container.get("id")
-
-    if not creation_id:
-        raise RuntimeError(f"Container creation failed: {container}")
-
-    print(f"Media container created: {creation_id}")
-
-    # 2. Wait until Instagram finishes processing the image
+def wait_for_container(creation_id, token):
     status_url = f"{GRAPH_URL}/{creation_id}"
 
-    for attempt in range(10):
+    for attempt in range(20):
         response = requests.get(
             status_url,
             params={
@@ -47,37 +20,27 @@ def post_image(image_url, caption):
         )
 
         response.raise_for_status()
-        status = response.json()
+        data = response.json()
 
-        status_code = status.get("status_code")
-        status_message = status.get("status")
-
-        print(
-            f"Container status ({attempt + 1}/10): "
-            f"{status_code} - {status_message}"
-        )
+        status_code = data.get("status_code")
+        print(f"Container status ({attempt + 1}/20): {data}")
 
         if status_code == "FINISHED":
-            break
+            return
 
-        if status_code == "ERROR":
+        if status_code in ("ERROR", "EXPIRED"):
             raise RuntimeError(
-                f"Instagram container processing failed: {status}"
-            )
-
-        if status_code == "EXPIRED":
-            raise RuntimeError(
-                f"Instagram container expired: {status}"
+                f"Instagram container failed: {data}"
             )
 
         time.sleep(30)
 
-    else:
-        raise RuntimeError(
-            "Instagram container did not become FINISHED within 5 minutes."
-        )
+    raise RuntimeError(
+        "Container did not finish within the allowed time."
+    )
 
-    # 3. Publish the finished container
+
+def publish_container(user_id, creation_id, token):
     publish_url = f"{GRAPH_URL}/{user_id}/media_publish"
 
     response = requests.post(
@@ -95,21 +58,92 @@ def post_image(image_url, caption):
 
     response.raise_for_status()
 
-    result = response.json()
-
-    print(f"Instagram post published successfully: {result}")
+    print(f"Published successfully: {response.json()}")
 
 
-if __name__ == "__main__":
+def post_image(user_id, image_url, caption, token):
+    response = requests.post(
+        f"{GRAPH_URL}/{user_id}/media",
+        params={
+            "image_url": image_url,
+            "caption": caption,
+            "access_token": token,
+        },
+        timeout=60,
+    )
+
+    response.raise_for_status()
+
+    creation_id = response.json().get("id")
+
+    if not creation_id:
+        raise RuntimeError(
+            f"Image container creation failed: {response.text}"
+        )
+
+    print(f"Image container created: {creation_id}")
+
+    wait_for_container(creation_id, token)
+    publish_container(user_id, creation_id, token)
+
+
+def post_reel(user_id, video_url, caption, token):
+    response = requests.post(
+        f"{GRAPH_URL}/{user_id}/media",
+        params={
+            "media_type": "REELS",
+            "video_url": video_url,
+            "caption": caption,
+            "access_token": token,
+        },
+        timeout=60,
+    )
+
+    response.raise_for_status()
+
+    creation_id = response.json().get("id")
+
+    if not creation_id:
+        raise RuntimeError(
+            f"Reel container creation failed: {response.text}"
+        )
+
+    print(f"Reel container created: {creation_id}")
+
+    wait_for_container(creation_id, token)
+    publish_container(user_id, creation_id, token)
+
+
+def main():
     if len(sys.argv) < 2:
-        print("Usage: python post_to_instagram.py IMAGE_URL")
+        print("Usage: python post_to_instagram.py FILE_URL")
         sys.exit(1)
 
-    image_url = sys.argv[1]
+    file_url = sys.argv[1]
+
+    token = os.environ["INSTAGRAM_ACCESS_TOKEN"]
+    user_id = os.environ["INSTAGRAM_USER_ID"]
 
     caption = os.getenv(
         "INSTAGRAM_CAPTION",
         "Your caption here"
     )
 
-    post_image(image_url, caption)
+    if file_url.lower().endswith((".mp4", ".mov")):
+        print("Detected: VIDEO / REEL")
+        post_reel(user_id, file_url, caption, token)
+
+    elif file_url.lower().endswith(
+        (".jpg", ".jpeg", ".png")
+    ):
+        print("Detected: IMAGE")
+        post_image(user_id, file_url, caption, token)
+
+    else:
+        raise RuntimeError(
+            f"Unsupported file type: {file_url}"
+        )
+
+
+if __name__ == "__main__":
+    main()
